@@ -7,7 +7,8 @@ import os
 import socket
 from ftplib import FTP
 from ping3 import ping 
-from datetime import datetime
+from datetime import datetime, date
+import re
 
 # Definition of Const ------------------------------------------------------
 PORT_NO = 8501      # PLCのポート番号(基本固定されている)
@@ -59,6 +60,62 @@ def read_device_u(ip_add:str, device:str)->str:
     """
     cmd = 'RD ' + device +'.U\r'
     return com_with_plc(ip_add, cmd)
+
+
+def add_device_number(device: str, offset: int) -> str:
+    """PLCデバイス番号に指定値を加算する(正規表現に注意)"""
+
+    match = re.fullmatch(r"([A-Za-z]+)(\d+)", device)
+    if match is None:
+        raise ValueError(f"デバイス名が不正です: {device}")
+    
+    device_name = match.group(1)
+    device_number = int(match.group(2))
+
+    return f"{device_name}{device_number + offset}"
+
+
+def read_devices_u(ip_add: str, device: str, dev_number: int) -> list[int]:
+    """PLCのデバイス連続データ読み込み
+    データ形式は U:10進数16ビット符号なし
+    最大5000個まで対応
+    """
+    max_total_number = 5000
+    max_once_number = 1000
+
+    if not 1 <= dev_number <= max_total_number:
+        raise ValueError(
+            f"指定されたデバイス数が不正です: {dev_number}"
+        )
+    
+    values: list[int] = []  # 型ヒント付き初期化
+
+    read_count = 0
+
+    while read_count < dev_number:
+        read_number = min(max_once_number, dev_number - read_count)
+        start_device = add_device_number(device, read_count)
+
+        cmd = f"RDS {start_device}.U {read_number}\r"
+        res = com_with_plc(ip_add, cmd)
+
+        if res in ("E1", "E2"):
+            raise RuntimeError(f"PLC通信エラー: {res}")
+        
+        try:
+            partial_values = [int(x) for x in res.split()]
+        except ValueError as e:
+            raise RuntimeError("PLC応答を数値に変換できません: {res}") from e
+        
+        if len(partial_values) != read_number:
+            raise RuntimeError(
+                f"PLC応答数が不正です: 要求={read_number}, 実際={len(partial_values)}, 応答={res}"
+            )
+        
+        values.extend(partial_values)
+        read_count += read_number
+
+    return values
 
 
 def write_device_u(ip_add:str, device:str, value:int)->str:
@@ -243,15 +300,47 @@ def ftp_get_file(ip_add:str, folder_name:str, file_name:str, save_folder:str)->b
     except:
         print(f'   {ip_add}:FTP-DL-process failure')
         return False
+    
+
+def join_u16_to_u32(upper_value: int, lower_value: int) -> int:
+    """2つの16ビット符号なし値を結合して32ビット符号なし値に変換する"""
+    if not 0 <= upper_value <= 0xFFFF:
+        raise ValueError(f"upper_valueが16ビット範囲外です: {upper_value}")
+    
+    if not 0 <= lower_value <= 0xFFFF:
+        raise ValueError(f"upper_valueが16ビット範囲外です: {lower_value}")
+
+    return (upper_value << 16) | lower_value
+
+
+def decode_plc_date(date_value: int) -> str:
+    """PLCの日付整数(YYMMDD)をYYYY-MM-DD形式の文字列に変換する"""
+    year = date_value // 10000
+    month = (date_value // 100) % 100
+    day = date_value % 100
+
+    # 日付として妥当かチェック
+    dt = date(2000 + year, month, day)
+
+    return dt.strftime("%Y-%m-%d")
 
 
 
 # テストコード(動作確認用) -----------------------------------------------------------------
 if __name__=='__main__':
-    # ワーキングディレクトリ変更(VSCode使用時必要)
-    # os.chdir(os.path.dirname(__file__))
- 
-    ip_add = '172.21.0.20'
+
+    print(join_u16_to_u32(3,64019))
+    exit()
+
+    ip_add = "172.20.1.111"
+
+    res = read_devices_u(ip_add, 'ZF0', 1500)
+    print(res)
+    print(len(res))
+
+    exit()
+
+
     # cmd = 'WR DM1990.U 6000\r'
     res = read_device_u(ip_add, 'DM1990')
     print(res)
@@ -282,6 +371,12 @@ if __name__=='__main__':
 
 """
 ----- 更新履歴 -----
+
+2026.6.27
+以下関数追加
+    read_devices_u
+    join_u16_to_u32
+    decode_plc_date
 
 2026.5.10
 ChatGPTのアドバイスにより、com_with_plcをリニューアル。
