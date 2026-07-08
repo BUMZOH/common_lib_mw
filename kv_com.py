@@ -134,6 +134,37 @@ def write_device_u(ip_add:str, device:str, value:int)->str:
     return com_with_plc(ip_add, cmd)
 
 
+def read_device_d(ip_add:str, device:str)->str:
+    """ PLCのデバイス1点のデータ読み込み
+        (データ形式はU:10進数32ビット符号なし)
+
+    Args:
+        ip_add (str): PLCのIPアドレス
+        device (str): デバイス名
+
+    Returns:
+        str: デバイス値またはエラーコード
+    """
+    cmd = 'RD ' + device +'.D\r'
+    return com_with_plc(ip_add, cmd)
+
+
+def write_device_d(ip_add:str, device:str, value:int)->str:
+    """ PLCのデバイス1点のデータ書き込み
+        (データ形式はU:10進数32ビット符号なし)
+
+    Args:
+        ip_add (str): PLCのIPアドレス
+        device (str): デバイス名
+        value (int): 書き込む値
+
+    Returns:
+        str: OK(成功時)またはエラーコード
+    """
+    cmd = 'WR ' + device +'.D ' + str(value) + '\r'
+    return com_with_plc(ip_add, cmd)
+
+
 def connect_check(ip_add:str)->bool:
     """PINGを使用した疎通確認を実施
         PLC以外の機器でも使用可能
@@ -371,6 +402,11 @@ if __name__=='__main__':
 
 """
 ----- 更新履歴 -----
+
+2026.7.8
+以下関数追加
+    read_device_d
+    write_device_d
 
 2026.6.27
 以下関数追加
